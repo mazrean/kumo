@@ -17,6 +17,38 @@ type Instance struct {
 	KeyName          string
 	LaunchTime       time.Time
 	Tags             []Tag
+
+	AvailabilityZone                  string
+	UserData                          string
+	DisableAPITermination             bool
+	DisableAPIStop                    bool
+	InstanceInitiatedShutdownBehavior string
+	EbsOptimized                      bool
+	EnaSupport                        bool
+	SriovNetSupport                   string
+	KernelID                          string
+	RamdiskID                         string
+	RootDeviceName                    string
+	// SourceDestCheck is a pointer so that a nil value (including snapshots
+	// persisted before this field existed) reads as the AWS default, true.
+	SourceDestCheck *bool
+}
+
+// InstanceAttributeUpdates carries optional instance attribute changes for
+// ModifyInstanceAttribute. nil pointers (and a nil GroupIDs) mean "leave as-is".
+type InstanceAttributeUpdates struct {
+	InstanceType                      *string
+	KernelID                          *string
+	RamdiskID                         *string
+	UserData                          *string
+	DisableAPITermination             *bool
+	DisableAPIStop                    *bool
+	InstanceInitiatedShutdownBehavior *string
+	SourceDestCheck                   *bool
+	EbsOptimized                      *bool
+	EnaSupport                        *bool
+	SriovNetSupport                   *string
+	GroupIDs                          []string
 }
 
 // InstanceState represents the state of an instance.
@@ -81,6 +113,15 @@ type RunInstancesRequest struct {
 	KeyName          string   `json:"KeyName,omitempty"`
 	SecurityGroupIDs []string `json:"SecurityGroupIds,omitempty"`
 	SecurityGroups   []string `json:"SecurityGroups,omitempty"`
+
+	UserData                          string `json:"UserData,omitempty"`
+	DisableAPITermination             bool   `json:"DisableApiTermination,omitempty"`
+	DisableAPIStop                    bool   `json:"DisableApiStop,omitempty"`
+	InstanceInitiatedShutdownBehavior string `json:"InstanceInitiatedShutdownBehavior,omitempty"`
+	EbsOptimized                      bool   `json:"EbsOptimized,omitempty"`
+	KernelID                          string `json:"KernelId,omitempty"`
+	RamdiskID                         string `json:"RamdiskId,omitempty"`
+	AvailabilityZone                  string `json:"Placement.AvailabilityZone,omitempty"`
 }
 
 // TerminateInstancesRequest represents a TerminateInstances request.
@@ -192,6 +233,95 @@ type XMLGroupSet struct {
 type XMLGroupIdentifier struct {
 	GroupID   string `xml:"groupId"`
 	GroupName string `xml:"groupName"`
+}
+
+// XMLDescribeInstanceAttributeResponse is the XML response for
+// DescribeInstanceAttribute. Exactly one attribute element is populated.
+type XMLDescribeInstanceAttributeResponse struct {
+	XMLName                           xml.Name           `xml:"DescribeInstanceAttributeResponse"`
+	Xmlns                             string             `xml:"xmlns,attr"`
+	RequestID                         string             `xml:"requestId"`
+	InstanceID                        string             `xml:"instanceId"`
+	InstanceType                      *xmlStringValue    `xml:"instanceType,omitempty"`
+	Kernel                            *xmlStringValue    `xml:"kernel,omitempty"`
+	Ramdisk                           *xmlStringValue    `xml:"ramdisk,omitempty"`
+	UserData                          *xmlStringValue    `xml:"userData,omitempty"`
+	DisableAPITermination             *xmlBoolValue      `xml:"disableApiTermination,omitempty"`
+	DisableAPIStop                    *xmlBoolValue      `xml:"disableApiStop,omitempty"`
+	InstanceInitiatedShutdownBehavior *xmlStringValue    `xml:"instanceInitiatedShutdownBehavior,omitempty"`
+	RootDeviceName                    *xmlStringValue    `xml:"rootDeviceName,omitempty"`
+	BlockDeviceMapping                *xmlEmptySet       `xml:"blockDeviceMapping,omitempty"`
+	ProductCodes                      *xmlEmptySet       `xml:"productCodes,omitempty"`
+	SourceDestCheck                   *xmlBoolValue      `xml:"sourceDestCheck,omitempty"`
+	GroupSet                          *XMLGroupSet       `xml:"groupSet,omitempty"`
+	EbsOptimized                      *xmlBoolValue      `xml:"ebsOptimized,omitempty"`
+	EnaSupport                        *xmlBoolValue      `xml:"enaSupport,omitempty"`
+	SriovNetSupport                   *xmlStringValue    `xml:"sriovNetSupport,omitempty"`
+	EnclaveOptions                    *xmlEnclaveOptions `xml:"enclaveOptions,omitempty"`
+}
+
+// xmlStringValue wraps a string in the AWS <value>...</value> child shape.
+// An empty string omits <value>, which the SDK reads as a nil Value.
+type xmlStringValue struct {
+	Value string `xml:"value,omitempty"`
+}
+
+// xmlEmptySet renders an empty list element such as <productCodes/>.
+type xmlEmptySet struct{}
+
+type xmlEnclaveOptions struct {
+	Enabled bool `xml:"enabled"`
+}
+
+// XMLDescribeInstanceStatusResponse is the XML response for DescribeInstanceStatus.
+type XMLDescribeInstanceStatusResponse struct {
+	XMLName           xml.Name             `xml:"DescribeInstanceStatusResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	RequestID         string               `xml:"requestId"`
+	InstanceStatusSet XMLInstanceStatusSet `xml:"instanceStatusSet"`
+	NextToken         string               `xml:"nextToken,omitempty"`
+}
+
+// XMLInstanceStatusSet contains a list of instance statuses.
+type XMLInstanceStatusSet struct {
+	Items []XMLInstanceStatusItem `xml:"item"`
+}
+
+// XMLInstanceStatusItem represents the status of one instance.
+type XMLInstanceStatusItem struct {
+	InstanceID       string                   `xml:"instanceId"`
+	AvailabilityZone string                   `xml:"availabilityZone"`
+	InstanceState    XMLInstanceState         `xml:"instanceState"`
+	SystemStatus     XMLInstanceStatusSummary `xml:"systemStatus"`
+	InstanceStatus   XMLInstanceStatusSummary `xml:"instanceStatus"`
+}
+
+// XMLInstanceStatusSummary is the instance or system status of an instance.
+type XMLInstanceStatusSummary struct {
+	Status  string                      `xml:"status"`
+	Details XMLInstanceStatusDetailsSet `xml:"details"`
+}
+
+// reachability returns the status of the reachability check, or "" if absent.
+func (s XMLInstanceStatusSummary) reachability() string {
+	for _, d := range s.Details.Items {
+		if d.Name == instanceStatusReachability {
+			return d.Status
+		}
+	}
+
+	return ""
+}
+
+// XMLInstanceStatusDetailsSet contains the individual status checks.
+type XMLInstanceStatusDetailsSet struct {
+	Items []XMLInstanceStatusDetail `xml:"item"`
+}
+
+// XMLInstanceStatusDetail is one status check result.
+type XMLInstanceStatusDetail struct {
+	Name   string `xml:"name"`
+	Status string `xml:"status"`
 }
 
 // XMLTerminateInstancesResponse is the XML response for TerminateInstances.

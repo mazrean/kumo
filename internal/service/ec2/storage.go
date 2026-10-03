@@ -49,6 +49,8 @@ const (
 	errCodeInvalidSubnetIDNotFound          = "InvalidSubnetID.NotFound"
 	errCodeInvalidInternetGatewayIDNotFound = "InvalidInternetGatewayID.NotFound"
 	errCodeInvalidRouteTableIDNotFound      = "InvalidRouteTableID.NotFound"
+	errCodeOperationNotPermitted            = "OperationNotPermitted"
+	errCodeIncorrectInstanceState           = "IncorrectInstanceState"
 )
 
 // stateAvailable is the resource State value most EC2 resources (VPCs,
@@ -84,6 +86,9 @@ type Storage interface {
 	DescribeInstances(ctx context.Context, instanceIDs []string) ([]*Reservation, error)
 	StartInstances(ctx context.Context, instanceIDs []string) ([]InstanceStateChange, error)
 	StopInstances(ctx context.Context, instanceIDs []string) ([]InstanceStateChange, error)
+	DescribeInstanceAttribute(ctx context.Context, instanceID string) (*Instance, error)
+	ModifyInstanceAttribute(ctx context.Context, instanceID string, updates *InstanceAttributeUpdates) error
+	DescribeInstanceStatus(ctx context.Context, instanceIDs []string, includeAll bool) ([]*Instance, error)
 
 	// Security Group operations
 	CreateSecurityGroup(ctx context.Context, req *CreateSecurityGroupRequest) (*SecurityGroup, error)
@@ -300,6 +305,15 @@ func (m *MemoryStorage) RunInstances(_ context.Context, req *RunInstancesRequest
 			KeyName:          req.KeyName,
 			LaunchTime:       time.Now(),
 			SecurityGroups:   m.resolveSecurityGroups(req.SecurityGroupIDs, req.SecurityGroups),
+
+			AvailabilityZone:                  req.AvailabilityZone,
+			UserData:                          req.UserData,
+			DisableAPITermination:             req.DisableAPITermination,
+			DisableAPIStop:                    req.DisableAPIStop,
+			InstanceInitiatedShutdownBehavior: req.InstanceInitiatedShutdownBehavior,
+			EbsOptimized:                      req.EbsOptimized,
+			KernelID:                          req.KernelID,
+			RamdiskID:                         req.RamdiskID,
 		}
 		instances = append(instances, instance)
 		m.Instances[instance.InstanceID] = instance
@@ -320,6 +334,17 @@ func (m *MemoryStorage) RunInstances(_ context.Context, req *RunInstancesRequest
 func (m *MemoryStorage) TerminateInstances(_ context.Context, instanceIDs []string) ([]InstanceStateChange, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Check termination protection up front so a protected instance in the
+	// batch leaves every instance untouched, as AWS does.
+	for _, id := range instanceIDs {
+		if instance, ok := m.Instances[id]; ok && instance.DisableAPITermination {
+			return nil, &Error{
+				Code:    errCodeOperationNotPermitted,
+				Message: fmt.Sprintf("The instance '%s' may not be terminated. Modify its 'disableApiTermination' instance attribute and try again.", id),
+			}
+		}
+	}
 
 	var changes []InstanceStateChange
 
@@ -433,6 +458,15 @@ func (m *MemoryStorage) StopInstances(_ context.Context, instanceIDs []string) (
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	for _, id := range instanceIDs {
+		if instance, ok := m.Instances[id]; ok && instance.DisableAPIStop {
+			return nil, &Error{
+				Code:    errCodeOperationNotPermitted,
+				Message: fmt.Sprintf("The instance '%s' may not be stopped. Modify its 'disableApiStop' instance attribute and try again.", id),
+			}
+		}
+	}
+
 	var changes []InstanceStateChange
 
 	for _, id := range instanceIDs {
@@ -457,6 +491,173 @@ func (m *MemoryStorage) StopInstances(_ context.Context, instanceIDs []string) (
 	m.saveLocked()
 
 	return changes, nil
+}
+
+// DescribeInstanceAttribute returns a snapshot of the instance so the caller
+// can render any single attribute without holding the storage lock.
+func (m *MemoryStorage) DescribeInstanceAttribute(_ context.Context, instanceID string) (*Instance, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	instance, ok := m.Instances[instanceID]
+	if !ok {
+		return nil, instanceNotFoundError(instanceID)
+	}
+
+	return copyInstance(instance), nil
+}
+
+// ModifyInstanceAttribute applies instance attribute updates. Only set
+// fields are touched. Attributes AWS can only change on a stopped instance
+// are rejected with IncorrectInstanceState otherwise, and the whole update
+// is validated before anything is applied.
+func (m *MemoryStorage) ModifyInstanceAttribute(_ context.Context, instanceID string, updates *InstanceAttributeUpdates) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	instance, ok := m.Instances[instanceID]
+	if !ok {
+		return instanceNotFoundError(instanceID)
+	}
+
+	if instance.State.Code == InstanceStateTerminated {
+		return &Error{
+			Code:    errCodeIncorrectInstanceState,
+			Message: fmt.Sprintf("The instance '%s' is not in a state from which it can be modified.", instanceID),
+		}
+	}
+
+	if updates.requiresStopped() && instance.State.Code != InstanceStateStopped {
+		return &Error{
+			Code:    errCodeIncorrectInstanceState,
+			Message: fmt.Sprintf("The instance '%s' is not in the 'stopped' state.", instanceID),
+		}
+	}
+
+	var groups []GroupIdentifier
+
+	if updates.GroupIDs != nil {
+		groups = make([]GroupIdentifier, 0, len(updates.GroupIDs))
+
+		for _, id := range updates.GroupIDs {
+			sg, exists := m.SecurityGroups[id]
+			if !exists {
+				return &Error{
+					Code:    errCodeInvalidGroupNotFound,
+					Message: fmt.Sprintf("The security group '%s' does not exist", id),
+				}
+			}
+
+			groups = append(groups, GroupIdentifier{GroupID: sg.GroupID, GroupName: sg.GroupName})
+		}
+	}
+
+	updates.applyTo(instance)
+
+	if groups != nil {
+		instance.SecurityGroups = groups
+	}
+
+	m.saveLocked()
+
+	return nil
+}
+
+// DescribeInstanceStatus returns snapshots of the requested instances, sorted
+// by instance ID. With no IDs every instance is considered. Unless includeAll
+// is set, only running instances are returned, matching AWS.
+func (m *MemoryStorage) DescribeInstanceStatus(_ context.Context, instanceIDs []string, includeAll bool) ([]*Instance, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var candidates []*Instance
+
+	if len(instanceIDs) == 0 {
+		candidates = make([]*Instance, 0, len(m.Instances))
+		for _, instance := range m.Instances {
+			candidates = append(candidates, instance)
+		}
+	} else {
+		candidates = make([]*Instance, 0, len(instanceIDs))
+
+		for _, id := range instanceIDs {
+			instance, ok := m.Instances[id]
+			if !ok {
+				return nil, instanceNotFoundError(id)
+			}
+
+			candidates = append(candidates, instance)
+		}
+	}
+
+	out := make([]*Instance, 0, len(candidates))
+
+	for _, instance := range candidates {
+		if !includeAll && instance.State.Code != InstanceStateRunning {
+			continue
+		}
+
+		out = append(out, copyInstance(instance))
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].InstanceID < out[j].InstanceID })
+
+	return out, nil
+}
+
+func instanceNotFoundError(id string) *Error {
+	return &Error{
+		Code:    errCodeInvalidInstanceIDNotFound,
+		Message: fmt.Sprintf("The instance ID '%s' does not exist", id),
+	}
+}
+
+// copyInstance returns a copy of the instance that shares no mutable state
+// with the stored one.
+func copyInstance(inst *Instance) *Instance {
+	c := *inst
+	c.SecurityGroups = append([]GroupIdentifier(nil), inst.SecurityGroups...)
+	c.Tags = append([]Tag(nil), inst.Tags...)
+
+	if inst.SourceDestCheck != nil {
+		v := *inst.SourceDestCheck
+		c.SourceDestCheck = &v
+	}
+
+	return &c
+}
+
+// requiresStopped reports whether the update touches an attribute AWS only
+// allows changing while the instance is stopped.
+func (u *InstanceAttributeUpdates) requiresStopped() bool {
+	return u.InstanceType != nil || u.KernelID != nil || u.RamdiskID != nil ||
+		u.UserData != nil || u.EbsOptimized != nil || u.EnaSupport != nil ||
+		u.SriovNetSupport != nil
+}
+
+// applyTo copies every set scalar field of the update onto the instance.
+func (u *InstanceAttributeUpdates) applyTo(inst *Instance) {
+	setIfNotNil(&inst.InstanceType, u.InstanceType)
+	setIfNotNil(&inst.KernelID, u.KernelID)
+	setIfNotNil(&inst.RamdiskID, u.RamdiskID)
+	setIfNotNil(&inst.UserData, u.UserData)
+	setIfNotNil(&inst.DisableAPITermination, u.DisableAPITermination)
+	setIfNotNil(&inst.DisableAPIStop, u.DisableAPIStop)
+	setIfNotNil(&inst.InstanceInitiatedShutdownBehavior, u.InstanceInitiatedShutdownBehavior)
+	setIfNotNil(&inst.EbsOptimized, u.EbsOptimized)
+	setIfNotNil(&inst.EnaSupport, u.EnaSupport)
+	setIfNotNil(&inst.SriovNetSupport, u.SriovNetSupport)
+
+	if u.SourceDestCheck != nil {
+		v := *u.SourceDestCheck
+		inst.SourceDestCheck = &v
+	}
+}
+
+func setIfNotNil[T any](dst, src *T) {
+	if src != nil {
+		*dst = *src
+	}
 }
 
 // CreateSecurityGroup creates a new security group.

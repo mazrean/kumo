@@ -68,6 +68,9 @@ func (s *Service) Actions() []string {
 		"DescribeInstances",
 		"StartInstances",
 		"StopInstances",
+		"DescribeInstanceAttribute",
+		"ModifyInstanceAttribute",
+		"DescribeInstanceStatus",
 		// Security Group operations
 		"CreateSecurityGroup",
 		"DeleteSecurityGroup",

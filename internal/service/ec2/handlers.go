@@ -1303,6 +1303,10 @@ func (s *Service) getActionHandler(action string) func(http.ResponseWriter, *htt
 		"DescribeInstances":  s.DescribeInstances,
 		"StartInstances":     s.StartInstances,
 		"StopInstances":      s.StopInstances,
+		// Instance attribute / status operations
+		"DescribeInstanceAttribute": s.DescribeInstanceAttribute,
+		"ModifyInstanceAttribute":   s.ModifyInstanceAttribute,
+		"DescribeInstanceStatus":    s.DescribeInstanceStatus,
 		// Security group operations
 		"CreateSecurityGroup":           s.CreateSecurityGroup,
 		"DeleteSecurityGroup":           s.DeleteSecurityGroup,

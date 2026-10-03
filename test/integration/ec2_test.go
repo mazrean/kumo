@@ -852,3 +852,119 @@ func TestEC2_ModifySubnetAttribute(t *testing.T) {
 		t.Errorf("after Modify, MapPublicIpOnLaunch = %v, want true", got)
 	}
 }
+
+func TestEC2_InstanceAttributeAndStatus(t *testing.T) {
+	client := newEC2Client(t)
+	ctx := t.Context()
+
+	runResult, err := client.RunInstances(ctx, &ec2.RunInstancesInput{
+		ImageId:               aws.String("ami-12345678"),
+		InstanceType:          types.InstanceTypeT2Micro,
+		MinCount:              aws.Int32(1),
+		MaxCount:              aws.Int32(1),
+		DisableApiTermination: aws.Bool(true),
+		UserData:              aws.String("ZWNobyBoZWxsbw=="),
+	})
+	if err != nil {
+		t.Fatalf("RunInstances failed: %v", err)
+	}
+
+	instanceID := *runResult.Instances[0].InstanceId
+
+	t.Cleanup(func() {
+		_, _ = client.ModifyInstanceAttribute(context.Background(), &ec2.ModifyInstanceAttributeInput{
+			InstanceId:            aws.String(instanceID),
+			DisableApiTermination: &types.AttributeBooleanValue{Value: aws.Bool(false)},
+		})
+		_, _ = client.TerminateInstances(context.Background(), &ec2.TerminateInstancesInput{
+			InstanceIds: []string{instanceID},
+		})
+	})
+
+	protection, err := client.DescribeInstanceAttribute(ctx, &ec2.DescribeInstanceAttributeInput{
+		InstanceId: aws.String(instanceID),
+		Attribute:  types.InstanceAttributeNameDisableApiTermination,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if protection.DisableApiTermination == nil || !*protection.DisableApiTermination.Value {
+		t.Errorf("DisableApiTermination = false, want true from RunInstances")
+	}
+
+	userData, err := client.DescribeInstanceAttribute(ctx, &ec2.DescribeInstanceAttributeInput{
+		InstanceId: aws.String(instanceID),
+		Attribute:  types.InstanceAttributeNameUserData,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if userData.UserData == nil || aws.ToString(userData.UserData.Value) != "ZWNobyBoZWxsbw==" {
+		t.Errorf("UserData = %v, want the value passed to RunInstances", userData.UserData)
+	}
+
+	if _, err := client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
+		InstanceIds: []string{instanceID},
+	}); err == nil {
+		t.Errorf("TerminateInstances succeeded on a termination-protected instance")
+	}
+
+	status, err := client.DescribeInstanceStatus(ctx, &ec2.DescribeInstanceStatusInput{
+		InstanceIds: []string{instanceID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.InstanceStatuses) != 1 ||
+		status.InstanceStatuses[0].InstanceStatus.Status != types.SummaryStatusOk ||
+		status.InstanceStatuses[0].SystemStatus.Status != types.SummaryStatusOk {
+		t.Errorf("running instance status = %+v, want ok/ok", status.InstanceStatuses)
+	}
+
+	if _, err := client.StopInstances(ctx, &ec2.StopInstancesInput{
+		InstanceIds: []string{instanceID},
+	}); err != nil {
+		t.Fatalf("StopInstances failed: %v", err)
+	}
+
+	if _, err := client.ModifyInstanceAttribute(ctx, &ec2.ModifyInstanceAttributeInput{
+		InstanceId:   aws.String(instanceID),
+		InstanceType: &types.AttributeValue{Value: aws.String("t3.large")},
+	}); err != nil {
+		t.Fatalf("ModifyInstanceAttribute(InstanceType) failed: %v", err)
+	}
+
+	instanceType, err := client.DescribeInstanceAttribute(ctx, &ec2.DescribeInstanceAttributeInput{
+		InstanceId: aws.String(instanceID),
+		Attribute:  types.InstanceAttributeNameInstanceType,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := aws.ToString(instanceType.InstanceType.Value); got != "t3.large" {
+		t.Errorf("InstanceType = %q, want t3.large", got)
+	}
+
+	stoppedDefault, err := client.DescribeInstanceStatus(ctx, &ec2.DescribeInstanceStatusInput{
+		InstanceIds: []string{instanceID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stoppedDefault.InstanceStatuses) != 0 {
+		t.Errorf("stopped instance listed without IncludeAllInstances: %+v", stoppedDefault.InstanceStatuses)
+	}
+
+	stoppedAll, err := client.DescribeInstanceStatus(ctx, &ec2.DescribeInstanceStatusInput{
+		InstanceIds:         []string{instanceID},
+		IncludeAllInstances: aws.Bool(true),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stoppedAll.InstanceStatuses) != 1 ||
+		stoppedAll.InstanceStatuses[0].InstanceState.Name != types.InstanceStateNameStopped ||
+		stoppedAll.InstanceStatuses[0].InstanceStatus.Status != types.SummaryStatusNotApplicable {
+		t.Errorf("IncludeAllInstances status = %+v, want stopped/not-applicable", stoppedAll.InstanceStatuses)
+	}
+}
