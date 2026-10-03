@@ -22,6 +22,7 @@ func newEC2Cmd() *cobra.Command {
 	cmd.AddCommand(
 		newEC2AssociateRouteTableCmd(),
 		newEC2AttachInternetGatewayCmd(),
+		newEC2AttachVolumeCmd(),
 		newEC2AuthorizeSecurityGroupEgressCmd(),
 		newEC2AuthorizeSecurityGroupIngressCmd(),
 		newEC2CreateInternetGatewayCmd(),
@@ -32,12 +33,14 @@ func newEC2Cmd() *cobra.Command {
 		newEC2CreateSecurityGroupCmd(),
 		newEC2CreateSubnetCmd(),
 		newEC2CreateTagsCmd(),
+		newEC2CreateVolumeCmd(),
 		newEC2CreateVpcCmd(),
 		newEC2DeleteInternetGatewayCmd(),
 		newEC2DeleteKeyPairCmd(),
 		newEC2DeleteSecurityGroupCmd(),
 		newEC2DeleteSubnetCmd(),
 		newEC2DeleteTagsCmd(),
+		newEC2DeleteVolumeCmd(),
 		newEC2DeleteVpcCmd(),
 		newEC2DescribeInstancesCmd(),
 		newEC2DescribeInternetGatewaysCmd(),
@@ -48,9 +51,11 @@ func newEC2Cmd() *cobra.Command {
 		newEC2DescribeSecurityGroupsCmd(),
 		newEC2DescribeSubnetsCmd(),
 		newEC2DescribeTagsCmd(),
+		newEC2DescribeVolumesCmd(),
 		newEC2DescribeVpcAttributeCmd(),
 		newEC2DescribeVpcsCmd(),
 		newEC2DetachInternetGatewayCmd(),
+		newEC2DetachVolumeCmd(),
 		newEC2ModifySubnetAttributeCmd(),
 		newEC2ModifyVpcAttributeCmd(),
 		newEC2RevokeSecurityGroupEgressCmd(),
@@ -180,6 +185,76 @@ func newEC2AttachInternetGatewayCmd() *cobra.Command {
 	cmd.Flags().StringVar(&vpcId, "vpc-id", "", "Vpc id")
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Dry run")
+
+	cmd.Flags().String("region", "", "Region override (ignored)")
+
+	return cmd
+}
+
+func newEC2AttachVolumeCmd() *cobra.Command {
+	var device string
+	var instanceId string
+	var volumeId string
+	var dryRun bool
+	var ebsCardIndex int32
+
+	cmd := &cobra.Command{
+		Use:   "attach-volume",
+		Short: "AttachVolume",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := newAWSConfig(cmd.Context())
+			if err != nil {
+				return err
+			}
+
+			client := ec2.NewFromConfig(cfg, func(o *ec2.Options) {
+				o.BaseEndpoint = aws.String(endpointURL)
+			})
+
+			input := &ec2.AttachVolumeInput{}
+
+			if device != "" {
+				input.Device = aws.String(device)
+			}
+
+			if instanceId != "" {
+				input.InstanceId = aws.String(instanceId)
+			}
+
+			if volumeId != "" {
+				input.VolumeId = aws.String(volumeId)
+			}
+
+			if dryRun {
+				input.DryRun = aws.Bool(dryRun)
+			}
+
+			if ebsCardIndex != 0 {
+				input.EbsCardIndex = aws.Int32(ebsCardIndex)
+			}
+
+			out, err := client.AttachVolume(cmd.Context(), input)
+			if err != nil {
+				return fmt.Errorf("attach-volume failed: %w", err)
+			}
+
+			if err := writeOutput(out); err != nil {
+				return err
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&device, "device", "", "Device")
+
+	cmd.Flags().StringVar(&instanceId, "instance-id", "", "Instance id")
+
+	cmd.Flags().StringVar(&volumeId, "volume-id", "", "Volume id")
+
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Dry run")
+
+	cmd.Flags().Int32Var(&ebsCardIndex, "ebs-card-index", 0, "Ebs card index")
 
 	cmd.Flags().String("region", "", "Region override (ignored)")
 
@@ -1139,6 +1214,159 @@ func newEC2CreateTagsCmd() *cobra.Command {
 	return cmd
 }
 
+func newEC2CreateVolumeCmd() *cobra.Command {
+	var availabilityZone string
+	var availabilityZoneId string
+	var clientToken string
+	var dryRun bool
+	var encrypted bool
+	var iops int32
+	var kmsKeyId string
+	var multiAttachEnabled bool
+	var operator string
+	var outpostArn string
+	var size int32
+	var snapshotId string
+	var tagSpecifications string
+	var throughput int32
+	var volumeInitializationRate int32
+	var volumeType string
+
+	cmd := &cobra.Command{
+		Use:   "create-volume",
+		Short: "CreateVolume",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := newAWSConfig(cmd.Context())
+			if err != nil {
+				return err
+			}
+
+			client := ec2.NewFromConfig(cfg, func(o *ec2.Options) {
+				o.BaseEndpoint = aws.String(endpointURL)
+			})
+
+			input := &ec2.CreateVolumeInput{}
+
+			if availabilityZone != "" {
+				input.AvailabilityZone = aws.String(availabilityZone)
+			}
+
+			if availabilityZoneId != "" {
+				input.AvailabilityZoneId = aws.String(availabilityZoneId)
+			}
+
+			if clientToken != "" {
+				input.ClientToken = aws.String(clientToken)
+			}
+
+			if dryRun {
+				input.DryRun = aws.Bool(dryRun)
+			}
+
+			if encrypted {
+				input.Encrypted = aws.Bool(encrypted)
+			}
+
+			if iops != 0 {
+				input.Iops = aws.Int32(iops)
+			}
+
+			if kmsKeyId != "" {
+				input.KmsKeyId = aws.String(kmsKeyId)
+			}
+
+			if multiAttachEnabled {
+				input.MultiAttachEnabled = aws.Bool(multiAttachEnabled)
+			}
+
+			if operator != "" {
+				var val types.OperatorRequest
+				if err := cligen.SetFieldsFromKV(reflect.ValueOf(&val).Elem(), operator); err != nil {
+					return fmt.Errorf("create-volume: parse --operator: %w", err)
+				}
+				input.Operator = &val
+			}
+
+			if outpostArn != "" {
+				input.OutpostArn = aws.String(outpostArn)
+			}
+
+			if size != 0 {
+				input.Size = aws.Int32(size)
+			}
+
+			if snapshotId != "" {
+				input.SnapshotId = aws.String(snapshotId)
+			}
+
+			if tagSpecifications != "" {
+				if err := json.Unmarshal([]byte(tagSpecifications), &input.TagSpecifications); err != nil {
+					return fmt.Errorf("create-volume: parse --tag-specifications: %w", err)
+				}
+			}
+
+			if throughput != 0 {
+				input.Throughput = aws.Int32(throughput)
+			}
+
+			if volumeInitializationRate != 0 {
+				input.VolumeInitializationRate = aws.Int32(volumeInitializationRate)
+			}
+
+			if volumeType != "" {
+				input.VolumeType = types.VolumeType(volumeType)
+			}
+
+			out, err := client.CreateVolume(cmd.Context(), input)
+			if err != nil {
+				return fmt.Errorf("create-volume failed: %w", err)
+			}
+
+			if err := writeOutput(out); err != nil {
+				return err
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&availabilityZone, "availability-zone", "", "Availability zone")
+
+	cmd.Flags().StringVar(&availabilityZoneId, "availability-zone-id", "", "Availability zone id")
+
+	cmd.Flags().StringVar(&clientToken, "client-token", "", "Client token")
+
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Dry run")
+
+	cmd.Flags().BoolVar(&encrypted, "encrypted", false, "Encrypted")
+
+	cmd.Flags().Int32Var(&iops, "iops", 0, "Iops")
+
+	cmd.Flags().StringVar(&kmsKeyId, "kms-key-id", "", "Kms key id")
+
+	cmd.Flags().BoolVar(&multiAttachEnabled, "multi-attach-enabled", false, "Multi attach enabled")
+
+	cmd.Flags().StringVar(&operator, "operator", "", "Operator (key=value,key2=value2)")
+
+	cmd.Flags().StringVar(&outpostArn, "outpost-arn", "", "Outpost arn")
+
+	cmd.Flags().Int32Var(&size, "size", 0, "Size")
+
+	cmd.Flags().StringVar(&snapshotId, "snapshot-id", "", "Snapshot id")
+
+	cmd.Flags().StringVar(&tagSpecifications, "tag-specifications", "", "Tag specifications (JSON)")
+
+	cmd.Flags().Int32Var(&throughput, "throughput", 0, "Throughput")
+
+	cmd.Flags().Int32Var(&volumeInitializationRate, "volume-initialization-rate", 0, "Volume initialization rate")
+
+	cmd.Flags().StringVar(&volumeType, "volume-type", "", "Volume type")
+
+	cmd.Flags().String("region", "", "Region override (ignored)")
+
+	return cmd
+}
+
 func newEC2CreateVpcCmd() *cobra.Command {
 	var amazonProvidedIpv6CidrBlock bool
 	var cidrBlock string
@@ -1523,6 +1751,51 @@ func newEC2DeleteTagsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Dry run")
 
 	cmd.Flags().StringArrayVar(&tags, "tags", nil, "Tags (key=value,key2=value2, repeatable)")
+
+	cmd.Flags().String("region", "", "Region override (ignored)")
+
+	return cmd
+}
+
+func newEC2DeleteVolumeCmd() *cobra.Command {
+	var volumeId string
+	var dryRun bool
+
+	cmd := &cobra.Command{
+		Use:   "delete-volume",
+		Short: "DeleteVolume",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := newAWSConfig(cmd.Context())
+			if err != nil {
+				return err
+			}
+
+			client := ec2.NewFromConfig(cfg, func(o *ec2.Options) {
+				o.BaseEndpoint = aws.String(endpointURL)
+			})
+
+			input := &ec2.DeleteVolumeInput{}
+
+			if volumeId != "" {
+				input.VolumeId = aws.String(volumeId)
+			}
+
+			if dryRun {
+				input.DryRun = aws.Bool(dryRun)
+			}
+
+			_, err = client.DeleteVolume(cmd.Context(), input)
+			if err != nil {
+				return fmt.Errorf("delete-volume failed: %w", err)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&volumeId, "volume-id", "", "Volume id")
+
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Dry run")
 
 	cmd.Flags().String("region", "", "Region override (ignored)")
 
@@ -2236,6 +2509,85 @@ func newEC2DescribeTagsCmd() *cobra.Command {
 	return cmd
 }
 
+func newEC2DescribeVolumesCmd() *cobra.Command {
+	var dryRun bool
+	var filters string
+	var includeManagedResources bool
+	var maxResults int32
+	var nextToken string
+	var volumeIds []string
+
+	cmd := &cobra.Command{
+		Use:   "describe-volumes",
+		Short: "DescribeVolumes",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := newAWSConfig(cmd.Context())
+			if err != nil {
+				return err
+			}
+
+			client := ec2.NewFromConfig(cfg, func(o *ec2.Options) {
+				o.BaseEndpoint = aws.String(endpointURL)
+			})
+
+			input := &ec2.DescribeVolumesInput{}
+
+			if dryRun {
+				input.DryRun = aws.Bool(dryRun)
+			}
+
+			if filters != "" {
+				if err := json.Unmarshal([]byte(filters), &input.Filters); err != nil {
+					return fmt.Errorf("describe-volumes: parse --filters: %w", err)
+				}
+			}
+
+			if includeManagedResources {
+				input.IncludeManagedResources = aws.Bool(includeManagedResources)
+			}
+
+			if maxResults != 0 {
+				input.MaxResults = aws.Int32(maxResults)
+			}
+
+			if nextToken != "" {
+				input.NextToken = aws.String(nextToken)
+			}
+
+			if len(volumeIds) > 0 {
+				input.VolumeIds = volumeIds
+			}
+
+			out, err := client.DescribeVolumes(cmd.Context(), input)
+			if err != nil {
+				return fmt.Errorf("describe-volumes failed: %w", err)
+			}
+
+			if err := writeOutput(out); err != nil {
+				return err
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Dry run")
+
+	cmd.Flags().StringVar(&filters, "filters", "", "Filters (JSON)")
+
+	cmd.Flags().BoolVar(&includeManagedResources, "include-managed-resources", false, "Include managed resources")
+
+	cmd.Flags().Int32Var(&maxResults, "max-results", 0, "Max results")
+
+	cmd.Flags().StringVar(&nextToken, "next-token", "", "Next token")
+
+	cmd.Flags().StringArrayVar(&volumeIds, "volume-ids", nil, "Volume ids")
+
+	cmd.Flags().String("region", "", "Region override (ignored)")
+
+	return cmd
+}
+
 func newEC2DescribeVpcAttributeCmd() *cobra.Command {
 	var attribute string
 	var vpcId string
@@ -2410,6 +2762,76 @@ func newEC2DetachInternetGatewayCmd() *cobra.Command {
 	cmd.Flags().StringVar(&vpcId, "vpc-id", "", "Vpc id")
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Dry run")
+
+	cmd.Flags().String("region", "", "Region override (ignored)")
+
+	return cmd
+}
+
+func newEC2DetachVolumeCmd() *cobra.Command {
+	var volumeId string
+	var device string
+	var dryRun bool
+	var force bool
+	var instanceId string
+
+	cmd := &cobra.Command{
+		Use:   "detach-volume",
+		Short: "DetachVolume",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := newAWSConfig(cmd.Context())
+			if err != nil {
+				return err
+			}
+
+			client := ec2.NewFromConfig(cfg, func(o *ec2.Options) {
+				o.BaseEndpoint = aws.String(endpointURL)
+			})
+
+			input := &ec2.DetachVolumeInput{}
+
+			if volumeId != "" {
+				input.VolumeId = aws.String(volumeId)
+			}
+
+			if device != "" {
+				input.Device = aws.String(device)
+			}
+
+			if dryRun {
+				input.DryRun = aws.Bool(dryRun)
+			}
+
+			if force {
+				input.Force = aws.Bool(force)
+			}
+
+			if instanceId != "" {
+				input.InstanceId = aws.String(instanceId)
+			}
+
+			out, err := client.DetachVolume(cmd.Context(), input)
+			if err != nil {
+				return fmt.Errorf("detach-volume failed: %w", err)
+			}
+
+			if err := writeOutput(out); err != nil {
+				return err
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&volumeId, "volume-id", "", "Volume id")
+
+	cmd.Flags().StringVar(&device, "device", "", "Device")
+
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Dry run")
+
+	cmd.Flags().BoolVar(&force, "force", false, "Force")
+
+	cmd.Flags().StringVar(&instanceId, "instance-id", "", "Instance id")
 
 	cmd.Flags().String("region", "", "Region override (ignored)")
 
