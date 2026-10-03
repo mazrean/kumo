@@ -39,6 +39,8 @@ func newEC2Cmd() *cobra.Command {
 		newEC2DeleteSubnetCmd(),
 		newEC2DeleteTagsCmd(),
 		newEC2DeleteVpcCmd(),
+		newEC2DescribeInstanceAttributeCmd(),
+		newEC2DescribeInstanceStatusCmd(),
 		newEC2DescribeInstancesCmd(),
 		newEC2DescribeInternetGatewaysCmd(),
 		newEC2DescribeKeyPairsCmd(),
@@ -51,6 +53,7 @@ func newEC2Cmd() *cobra.Command {
 		newEC2DescribeVpcAttributeCmd(),
 		newEC2DescribeVpcsCmd(),
 		newEC2DetachInternetGatewayCmd(),
+		newEC2ModifyInstanceAttributeCmd(),
 		newEC2ModifySubnetAttributeCmd(),
 		newEC2ModifyVpcAttributeCmd(),
 		newEC2RevokeSecurityGroupEgressCmd(),
@@ -1574,6 +1577,148 @@ func newEC2DeleteVpcCmd() *cobra.Command {
 	return cmd
 }
 
+func newEC2DescribeInstanceAttributeCmd() *cobra.Command {
+	var attribute string
+	var instanceId string
+	var dryRun bool
+
+	cmd := &cobra.Command{
+		Use:   "describe-instance-attribute",
+		Short: "DescribeInstanceAttribute",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := newAWSConfig(cmd.Context())
+			if err != nil {
+				return err
+			}
+
+			client := ec2.NewFromConfig(cfg, func(o *ec2.Options) {
+				o.BaseEndpoint = aws.String(endpointURL)
+			})
+
+			input := &ec2.DescribeInstanceAttributeInput{}
+
+			if attribute != "" {
+				input.Attribute = types.InstanceAttributeName(attribute)
+			}
+
+			if instanceId != "" {
+				input.InstanceId = aws.String(instanceId)
+			}
+
+			if dryRun {
+				input.DryRun = aws.Bool(dryRun)
+			}
+
+			out, err := client.DescribeInstanceAttribute(cmd.Context(), input)
+			if err != nil {
+				return fmt.Errorf("describe-instance-attribute failed: %w", err)
+			}
+
+			if err := writeOutput(out); err != nil {
+				return err
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&attribute, "attribute", "", "Attribute")
+
+	cmd.Flags().StringVar(&instanceId, "instance-id", "", "Instance id")
+
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Dry run")
+
+	cmd.Flags().String("region", "", "Region override (ignored)")
+
+	return cmd
+}
+
+func newEC2DescribeInstanceStatusCmd() *cobra.Command {
+	var dryRun bool
+	var filters string
+	var includeAllInstances bool
+	var includeManagedResources bool
+	var instanceIds []string
+	var maxResults int32
+	var nextToken string
+
+	cmd := &cobra.Command{
+		Use:   "describe-instance-status",
+		Short: "DescribeInstanceStatus",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := newAWSConfig(cmd.Context())
+			if err != nil {
+				return err
+			}
+
+			client := ec2.NewFromConfig(cfg, func(o *ec2.Options) {
+				o.BaseEndpoint = aws.String(endpointURL)
+			})
+
+			input := &ec2.DescribeInstanceStatusInput{}
+
+			if dryRun {
+				input.DryRun = aws.Bool(dryRun)
+			}
+
+			if filters != "" {
+				if err := json.Unmarshal([]byte(filters), &input.Filters); err != nil {
+					return fmt.Errorf("describe-instance-status: parse --filters: %w", err)
+				}
+			}
+
+			if includeAllInstances {
+				input.IncludeAllInstances = aws.Bool(includeAllInstances)
+			}
+
+			if includeManagedResources {
+				input.IncludeManagedResources = aws.Bool(includeManagedResources)
+			}
+
+			if len(instanceIds) > 0 {
+				input.InstanceIds = instanceIds
+			}
+
+			if maxResults != 0 {
+				input.MaxResults = aws.Int32(maxResults)
+			}
+
+			if nextToken != "" {
+				input.NextToken = aws.String(nextToken)
+			}
+
+			out, err := client.DescribeInstanceStatus(cmd.Context(), input)
+			if err != nil {
+				return fmt.Errorf("describe-instance-status failed: %w", err)
+			}
+
+			if err := writeOutput(out); err != nil {
+				return err
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Dry run")
+
+	cmd.Flags().StringVar(&filters, "filters", "", "Filters (JSON)")
+
+	cmd.Flags().BoolVar(&includeAllInstances, "include-all-instances", false, "Include all instances")
+
+	cmd.Flags().BoolVar(&includeManagedResources, "include-managed-resources", false, "Include managed resources")
+
+	cmd.Flags().StringArrayVar(&instanceIds, "instance-ids", nil, "Instance ids")
+
+	cmd.Flags().Int32Var(&maxResults, "max-results", 0, "Max results")
+
+	cmd.Flags().StringVar(&nextToken, "next-token", "", "Next token")
+
+	cmd.Flags().String("region", "", "Region override (ignored)")
+
+	return cmd
+}
+
 func newEC2DescribeInstancesCmd() *cobra.Command {
 	var dryRun bool
 	var filters string
@@ -2410,6 +2555,213 @@ func newEC2DetachInternetGatewayCmd() *cobra.Command {
 	cmd.Flags().StringVar(&vpcId, "vpc-id", "", "Vpc id")
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Dry run")
+
+	cmd.Flags().String("region", "", "Region override (ignored)")
+
+	return cmd
+}
+
+func newEC2ModifyInstanceAttributeCmd() *cobra.Command {
+	var instanceId string
+	var attribute string
+	var blockDeviceMappings string
+	var disableApiStop string
+	var disableApiTermination string
+	var dryRun bool
+	var ebsOptimized string
+	var enaSupport string
+	var enclaveOptions string
+	var groups []string
+	var instanceInitiatedShutdownBehavior string
+	var instanceType string
+	var kernel string
+	var ramdisk string
+	var sourceDestCheck string
+	var sriovNetSupport string
+	var userData string
+	var value string
+
+	cmd := &cobra.Command{
+		Use:   "modify-instance-attribute",
+		Short: "ModifyInstanceAttribute",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := newAWSConfig(cmd.Context())
+			if err != nil {
+				return err
+			}
+
+			client := ec2.NewFromConfig(cfg, func(o *ec2.Options) {
+				o.BaseEndpoint = aws.String(endpointURL)
+			})
+
+			input := &ec2.ModifyInstanceAttributeInput{}
+
+			if instanceId != "" {
+				input.InstanceId = aws.String(instanceId)
+			}
+
+			if attribute != "" {
+				input.Attribute = types.InstanceAttributeName(attribute)
+			}
+
+			if blockDeviceMappings != "" {
+				if err := json.Unmarshal([]byte(blockDeviceMappings), &input.BlockDeviceMappings); err != nil {
+					return fmt.Errorf("modify-instance-attribute: parse --block-device-mappings: %w", err)
+				}
+			}
+
+			if disableApiStop != "" {
+				var val types.AttributeBooleanValue
+				if err := cligen.SetFieldsFromKV(reflect.ValueOf(&val).Elem(), disableApiStop); err != nil {
+					return fmt.Errorf("modify-instance-attribute: parse --disable-api-stop: %w", err)
+				}
+				input.DisableApiStop = &val
+			}
+
+			if disableApiTermination != "" {
+				var val types.AttributeBooleanValue
+				if err := cligen.SetFieldsFromKV(reflect.ValueOf(&val).Elem(), disableApiTermination); err != nil {
+					return fmt.Errorf("modify-instance-attribute: parse --disable-api-termination: %w", err)
+				}
+				input.DisableApiTermination = &val
+			}
+
+			if dryRun {
+				input.DryRun = aws.Bool(dryRun)
+			}
+
+			if ebsOptimized != "" {
+				var val types.AttributeBooleanValue
+				if err := cligen.SetFieldsFromKV(reflect.ValueOf(&val).Elem(), ebsOptimized); err != nil {
+					return fmt.Errorf("modify-instance-attribute: parse --ebs-optimized: %w", err)
+				}
+				input.EbsOptimized = &val
+			}
+
+			if enaSupport != "" {
+				var val types.AttributeBooleanValue
+				if err := cligen.SetFieldsFromKV(reflect.ValueOf(&val).Elem(), enaSupport); err != nil {
+					return fmt.Errorf("modify-instance-attribute: parse --ena-support: %w", err)
+				}
+				input.EnaSupport = &val
+			}
+
+			if enclaveOptions != "" {
+				var val types.EnclaveOptionsRequest
+				if err := cligen.SetFieldsFromKV(reflect.ValueOf(&val).Elem(), enclaveOptions); err != nil {
+					return fmt.Errorf("modify-instance-attribute: parse --enclave-options: %w", err)
+				}
+				input.EnclaveOptions = &val
+			}
+
+			if len(groups) > 0 {
+				input.Groups = groups
+			}
+
+			if instanceInitiatedShutdownBehavior != "" {
+				var val types.AttributeValue
+				if err := cligen.SetFieldsFromKV(reflect.ValueOf(&val).Elem(), instanceInitiatedShutdownBehavior); err != nil {
+					return fmt.Errorf("modify-instance-attribute: parse --instance-initiated-shutdown-behavior: %w", err)
+				}
+				input.InstanceInitiatedShutdownBehavior = &val
+			}
+
+			if instanceType != "" {
+				var val types.AttributeValue
+				if err := cligen.SetFieldsFromKV(reflect.ValueOf(&val).Elem(), instanceType); err != nil {
+					return fmt.Errorf("modify-instance-attribute: parse --instance-type: %w", err)
+				}
+				input.InstanceType = &val
+			}
+
+			if kernel != "" {
+				var val types.AttributeValue
+				if err := cligen.SetFieldsFromKV(reflect.ValueOf(&val).Elem(), kernel); err != nil {
+					return fmt.Errorf("modify-instance-attribute: parse --kernel: %w", err)
+				}
+				input.Kernel = &val
+			}
+
+			if ramdisk != "" {
+				var val types.AttributeValue
+				if err := cligen.SetFieldsFromKV(reflect.ValueOf(&val).Elem(), ramdisk); err != nil {
+					return fmt.Errorf("modify-instance-attribute: parse --ramdisk: %w", err)
+				}
+				input.Ramdisk = &val
+			}
+
+			if sourceDestCheck != "" {
+				var val types.AttributeBooleanValue
+				if err := cligen.SetFieldsFromKV(reflect.ValueOf(&val).Elem(), sourceDestCheck); err != nil {
+					return fmt.Errorf("modify-instance-attribute: parse --source-dest-check: %w", err)
+				}
+				input.SourceDestCheck = &val
+			}
+
+			if sriovNetSupport != "" {
+				var val types.AttributeValue
+				if err := cligen.SetFieldsFromKV(reflect.ValueOf(&val).Elem(), sriovNetSupport); err != nil {
+					return fmt.Errorf("modify-instance-attribute: parse --sriov-net-support: %w", err)
+				}
+				input.SriovNetSupport = &val
+			}
+
+			if userData != "" {
+				var val types.BlobAttributeValue
+				if err := cligen.SetFieldsFromKV(reflect.ValueOf(&val).Elem(), userData); err != nil {
+					return fmt.Errorf("modify-instance-attribute: parse --user-data: %w", err)
+				}
+				input.UserData = &val
+			}
+
+			if value != "" {
+				input.Value = aws.String(value)
+			}
+
+			_, err = client.ModifyInstanceAttribute(cmd.Context(), input)
+			if err != nil {
+				return fmt.Errorf("modify-instance-attribute failed: %w", err)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&instanceId, "instance-id", "", "Instance id")
+
+	cmd.Flags().StringVar(&attribute, "attribute", "", "Attribute")
+
+	cmd.Flags().StringVar(&blockDeviceMappings, "block-device-mappings", "", "Block device mappings (JSON)")
+
+	cmd.Flags().StringVar(&disableApiStop, "disable-api-stop", "", "Disable api stop (key=value,key2=value2)")
+
+	cmd.Flags().StringVar(&disableApiTermination, "disable-api-termination", "", "Disable api termination (key=value,key2=value2)")
+
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Dry run")
+
+	cmd.Flags().StringVar(&ebsOptimized, "ebs-optimized", "", "Ebs optimized (key=value,key2=value2)")
+
+	cmd.Flags().StringVar(&enaSupport, "ena-support", "", "Ena support (key=value,key2=value2)")
+
+	cmd.Flags().StringVar(&enclaveOptions, "enclave-options", "", "Enclave options (key=value,key2=value2)")
+
+	cmd.Flags().StringArrayVar(&groups, "groups", nil, "Groups")
+
+	cmd.Flags().StringVar(&instanceInitiatedShutdownBehavior, "instance-initiated-shutdown-behavior", "", "Instance initiated shutdown behavior (key=value,key2=value2)")
+
+	cmd.Flags().StringVar(&instanceType, "instance-type", "", "Instance type (key=value,key2=value2)")
+
+	cmd.Flags().StringVar(&kernel, "kernel", "", "Kernel (key=value,key2=value2)")
+
+	cmd.Flags().StringVar(&ramdisk, "ramdisk", "", "Ramdisk (key=value,key2=value2)")
+
+	cmd.Flags().StringVar(&sourceDestCheck, "source-dest-check", "", "Source dest check (key=value,key2=value2)")
+
+	cmd.Flags().StringVar(&sriovNetSupport, "sriov-net-support", "", "Sriov net support (key=value,key2=value2)")
+
+	cmd.Flags().StringVar(&userData, "user-data", "", "User data (key=value,key2=value2)")
+
+	cmd.Flags().StringVar(&value, "value", "", "Value")
 
 	cmd.Flags().String("region", "", "Region override (ignored)")
 
