@@ -49,6 +49,7 @@ const (
 	errCodeInvalidSubnetIDNotFound          = "InvalidSubnetID.NotFound"
 	errCodeInvalidInternetGatewayIDNotFound = "InvalidInternetGatewayID.NotFound"
 	errCodeInvalidRouteTableIDNotFound      = "InvalidRouteTableID.NotFound"
+	errCodeInvalidVolumeNotFound            = "InvalidVolume.NotFound"
 )
 
 // stateAvailable is the resource State value most EC2 resources (VPCs,
@@ -128,6 +129,13 @@ type Storage interface {
 	CreateNatGateway(ctx context.Context, req *CreateNatGatewayRequest) (*NatGateway, error)
 	DescribeNatGateways(ctx context.Context, natgwIDs []string) ([]*NatGateway, error)
 
+	// Volume operations
+	CreateVolume(ctx context.Context, req *CreateVolumeRequest) (*Volume, error)
+	DeleteVolume(ctx context.Context, volumeID string) error
+	AttachVolume(ctx context.Context, req *AttachVolumeRequest) (*VolumeAttachment, error)
+	DetachVolume(ctx context.Context, req *DetachVolumeRequest) (*VolumeAttachment, error)
+	DescribeVolumes(ctx context.Context, volumeIDs []string, filters map[string][]string) ([]*Volume, error)
+
 	// Tag operations
 	CreateTags(ctx context.Context, resourceIDs []string, tags []Tag) error
 	DeleteTags(ctx context.Context, resourceIDs []string, tags []Tag) error
@@ -160,6 +168,7 @@ type MemoryStorage struct {
 	InternetGateways map[string]*InternetGateway `json:"internetGateways"`
 	RouteTables      map[string]*RouteTable      `json:"routeTables"`
 	NatGateways      map[string]*NatGateway      `json:"natGateways"`
+	Volumes          map[string]*Volume          `json:"volumes"`
 	dataDir          string
 }
 
@@ -175,6 +184,7 @@ func NewMemoryStorage(opts ...Option) *MemoryStorage {
 		InternetGateways: make(map[string]*InternetGateway),
 		RouteTables:      make(map[string]*RouteTable),
 		NatGateways:      make(map[string]*NatGateway),
+		Volumes:          make(map[string]*Volume),
 	}
 	for _, o := range opts {
 		o(s)
@@ -249,6 +259,10 @@ func (m *MemoryStorage) UnmarshalJSON(data []byte) error {
 
 	if m.NatGateways == nil {
 		m.NatGateways = make(map[string]*NatGateway)
+	}
+
+	if m.Volumes == nil {
+		m.Volumes = make(map[string]*Volume)
 	}
 
 	return nil
@@ -334,6 +348,8 @@ func (m *MemoryStorage) TerminateInstances(_ context.Context, instanceIDs []stri
 
 		prevState := instance.State
 		instance.State = InstanceState{Code: InstanceStateTerminated, Name: InstanceStateNameTerminated}
+
+		m.releaseInstanceVolumesLocked(id)
 
 		changes = append(changes, InstanceStateChange{
 			InstanceID:    id,
@@ -1697,6 +1713,10 @@ func (m *MemoryStorage) lookupTagsLocked(id string) ([]Tag, func([]Tag), error) 
 		return kp.Tags, func(t []Tag) { kp.Tags = t }, nil
 	}
 
+	if vol, ok := m.Volumes[id]; ok {
+		return vol.Tags, func(t []Tag) { vol.Tags = t }, nil
+	}
+
 	return nil, nil, &Error{
 		Code:    "InvalidID",
 		Message: fmt.Sprintf("The ID '%s' is not valid", id),
@@ -1751,6 +1771,10 @@ func (m *MemoryStorage) tagSourcesLocked() map[string]func() []Tag {
 		out[id] = func() []Tag { return v.Tags }
 	}
 
+	for id, v := range m.Volumes {
+		out[id] = func() []Tag { return v.Tags }
+	}
+
 	return out
 }
 
@@ -1766,6 +1790,7 @@ var resourceTypePrefixes = map[string]string{
 	"i-":      "instance",
 	"sg-":     "security-group",
 	"key-":    "key-pair",
+	"vol-":    "volume",
 }
 
 // resourceTypeForID maps an EC2 resource ID prefix to its resource-type string.

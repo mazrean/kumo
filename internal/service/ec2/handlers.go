@@ -1339,6 +1339,12 @@ func (s *Service) getActionHandler(action string) func(http.ResponseWriter, *htt
 		// NAT gateway operations
 		"CreateNatGateway":    s.CreateNatGateway,
 		"DescribeNatGateways": s.DescribeNatGateways,
+		// Volume (EBS) operations
+		"CreateVolume":    s.CreateVolume,
+		"DeleteVolume":    s.DeleteVolume,
+		"AttachVolume":    s.AttachVolume,
+		"DetachVolume":    s.DetachVolume,
+		"DescribeVolumes": s.DescribeVolumes,
 		// Tag operations
 		"CreateTags":   s.CreateTags,
 		"DeleteTags":   s.DeleteTags,

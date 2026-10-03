@@ -104,6 +104,12 @@ func (s *Service) Actions() []string {
 		// NAT Gateway operations
 		"CreateNatGateway",
 		"DescribeNatGateways",
+		// Volume (EBS) operations
+		"CreateVolume",
+		"DeleteVolume",
+		"AttachVolume",
+		"DetachVolume",
+		"DescribeVolumes",
 		// Tag operations
 		"CreateTags",
 		"DeleteTags",

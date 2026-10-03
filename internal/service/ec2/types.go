@@ -935,3 +935,153 @@ type XMLNetworkInterface struct {
 	SubnetID           string `xml:"subnetId,omitempty"`
 	Status             string `xml:"status,omitempty"`
 }
+
+// Volume represents an EBS volume.
+type Volume struct {
+	VolumeID           string
+	Size               int
+	SnapshotID         string
+	AvailabilityZone   string
+	State              string
+	VolumeType         string
+	Iops               int
+	Throughput         int
+	Encrypted          bool
+	KmsKeyID           string
+	MultiAttachEnabled bool
+	CreateTime         time.Time
+	Attachments        []VolumeAttachment
+	Tags               []Tag
+}
+
+// VolumeAttachment represents an attachment of an EBS volume to an instance.
+type VolumeAttachment struct {
+	VolumeID            string
+	InstanceID          string
+	Device              string
+	State               string
+	AttachTime          time.Time
+	DeleteOnTermination bool
+}
+
+// CreateVolumeRequest represents a CreateVolume request.
+type CreateVolumeRequest struct {
+	AvailabilityZone   string `json:"AvailabilityZone"`
+	Size               int    `json:"Size,omitempty"`
+	SnapshotID         string `json:"SnapshotId,omitempty"`
+	VolumeType         string `json:"VolumeType,omitempty"`
+	Iops               int    `json:"Iops,omitempty"`
+	Throughput         int    `json:"Throughput,omitempty"`
+	Encrypted          bool   `json:"Encrypted,omitempty"`
+	KmsKeyID           string `json:"KmsKeyId,omitempty"`
+	MultiAttachEnabled bool   `json:"MultiAttachEnabled,omitempty"`
+}
+
+// DeleteVolumeRequest represents a DeleteVolume request.
+type DeleteVolumeRequest struct {
+	VolumeID string `json:"VolumeId"`
+}
+
+// AttachVolumeRequest represents an AttachVolume request.
+type AttachVolumeRequest struct {
+	VolumeID   string `json:"VolumeId"`
+	InstanceID string `json:"InstanceId"`
+	Device     string `json:"Device"`
+}
+
+// DetachVolumeRequest represents a DetachVolume request. InstanceID and
+// Device are optional; when given they must match the existing attachment.
+type DetachVolumeRequest struct {
+	VolumeID   string `json:"VolumeId"`
+	InstanceID string `json:"InstanceId,omitempty"`
+	Device     string `json:"Device,omitempty"`
+	Force      bool   `json:"Force,omitempty"`
+}
+
+// DescribeVolumesRequest represents a DescribeVolumes request. Filters are
+// parsed from the raw form because the Query-to-JSON converter flattens
+// Filter.N.Value.M into an unusable shape.
+type DescribeVolumesRequest struct {
+	VolumeIDs []string `json:"VolumeIds,omitempty"`
+}
+
+// XMLVolume represents a volume in XML format.
+type XMLVolume struct {
+	VolumeID           string                 `xml:"volumeId"`
+	Size               int                    `xml:"size"`
+	SnapshotID         string                 `xml:"snapshotId"`
+	AvailabilityZone   string                 `xml:"availabilityZone"`
+	Status             string                 `xml:"status"`
+	CreateTime         string                 `xml:"createTime"`
+	AttachmentSet      XMLVolumeAttachmentSet `xml:"attachmentSet"`
+	TagSet             XMLTagSet              `xml:"tagSet"`
+	VolumeType         string                 `xml:"volumeType"`
+	Iops               int                    `xml:"iops,omitempty"`
+	Throughput         int                    `xml:"throughput,omitempty"`
+	Encrypted          bool                   `xml:"encrypted"`
+	KmsKeyID           string                 `xml:"kmsKeyId,omitempty"`
+	MultiAttachEnabled bool                   `xml:"multiAttachEnabled"`
+}
+
+// XMLVolumeAttachmentSet contains a list of volume attachments.
+type XMLVolumeAttachmentSet struct {
+	Items []XMLVolumeAttachment `xml:"item"`
+}
+
+// XMLVolumeAttachment represents a volume attachment in XML format.
+type XMLVolumeAttachment struct {
+	VolumeID            string `xml:"volumeId"`
+	InstanceID          string `xml:"instanceId"`
+	Device              string `xml:"device"`
+	Status              string `xml:"status"`
+	AttachTime          string `xml:"attachTime"`
+	DeleteOnTermination bool   `xml:"deleteOnTermination"`
+}
+
+// XMLCreateVolumeResponse is the XML response for CreateVolume. Unlike
+// DescribeVolumes, the volume fields sit directly under the response element.
+type XMLCreateVolumeResponse struct {
+	XMLName   xml.Name `xml:"CreateVolumeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	XMLVolume
+}
+
+// XMLDeleteVolumeResponse is the XML response for DeleteVolume.
+type XMLDeleteVolumeResponse struct {
+	XMLName   xml.Name `xml:"DeleteVolumeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+// XMLAttachVolumeResponse is the XML response for AttachVolume. The
+// attachment fields sit directly under the response element.
+type XMLAttachVolumeResponse struct {
+	XMLName   xml.Name `xml:"AttachVolumeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	XMLVolumeAttachment
+}
+
+// XMLDetachVolumeResponse is the XML response for DetachVolume. The
+// attachment fields sit directly under the response element.
+type XMLDetachVolumeResponse struct {
+	XMLName   xml.Name `xml:"DetachVolumeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	XMLVolumeAttachment
+}
+
+// XMLDescribeVolumesResponse is the XML response for DescribeVolumes.
+type XMLDescribeVolumesResponse struct {
+	XMLName   xml.Name     `xml:"DescribeVolumesResponse"`
+	Xmlns     string       `xml:"xmlns,attr"`
+	RequestID string       `xml:"requestId"`
+	VolumeSet XMLVolumeSet `xml:"volumeSet"`
+}
+
+// XMLVolumeSet contains a list of volumes.
+type XMLVolumeSet struct {
+	Items []XMLVolume `xml:"item"`
+}
